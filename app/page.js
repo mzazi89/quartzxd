@@ -159,7 +159,10 @@ export default function Home() {
   }
 
   return (
-    <div className="ambient">
+    <>
+      {/* Ambient background — fixed layer, MUST be a sibling so its
+          pointer-events:none never inherits into the content below */}
+      <div className="ambient" aria-hidden="true" />
       <div className="wrap">
         <header className="site">
           <a className="brand" href="/">
@@ -309,6 +312,6 @@ export default function Home() {
           </span>
         </footer>
       </div>
-    </div>
+    </>
   );
 }

@@ -40,6 +40,7 @@ body {
   font-size: 16px;
   line-height: 1.6;
   overflow-x: hidden;
+  -webkit-tap-highlight-color: transparent;
 }
 
 h1, h2, h3, .display { font-family: var(--font-display); }
@@ -74,6 +75,8 @@ h1, h2, h3, .display { font-family: var(--font-display); }
   max-width: 1080px;
   margin: 0 auto;
   padding: 0 24px;
+  /* Belt-and-braces: never let any inherited pointer-events:none reach content */
+  pointer-events: auto;
 }
 
 header.site {
@@ -248,6 +251,7 @@ input[type='tel'] {
   font-family: var(--font-mono);
   font-size: 15px;
   outline: none;
+  touch-action: manipulation;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
@@ -274,6 +278,7 @@ input[type='tel']:focus {
   align-items: center;
   gap: 8px;
   white-space: nowrap;
+  touch-action: manipulation;
 }
 
 .btn:hover:not(:disabled) { border-color: var(--amber-deep); color: var(--amber); }
@@ -502,4 +507,6 @@ footer.site a:hover { color: var(--amber); }
   .hero { padding: 44px 0 28px; }
   .card { padding: 20px; }
   .metrics { grid-template-columns: repeat(3, 1fr); }
+  /* ≥16px prevents iOS auto-zoom when focusing the input */
+  input[type='tel'] { font-size: 16px; }
 }
