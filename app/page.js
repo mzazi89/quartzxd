@@ -22,9 +22,23 @@ function formatLastSeen(iso) {
   return d.toLocaleDateString();
 }
 
+function formatUptime(sec) {
+  if (!sec && sec !== 0) return '—';
+  const d = Math.floor(sec / 86400);
+  const h = Math.floor((sec % 86400) / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+const PAIR_TIMEOUT_MS = 90000;
+
 export default function Home() {
   const [botOnline, setBotOnline] = useState(null);
   const [ip, setIp] = useState(null);
+  const [botVersion, setBotVersion] = useState(null);
+  const [botUptime, setBotUptime] = useState(null);
   const [devices, setDevices] = useState([]);
   const [loadingDevices, setLoadingDevices] = useState(true);
 
@@ -45,6 +59,8 @@ export default function Home() {
         setDevices(data.devices);
         setBotOnline(!!data.botOnline);
         setIp(data.ip || null);
+        setBotVersion(data.version || null);
+        setBotUptime(data.uptimeSeconds != null ? data.uptimeSeconds : null);
       }
     } catch (e) {
       // keep last known state
@@ -98,7 +114,16 @@ export default function Home() {
 
   function pollCode(requestId) {
     if (pollRef.current) clearInterval(pollRef.current);
+    const startedAt = Date.now();
     pollRef.current = setInterval(async () => {
+      // Give the bot a bounded window to answer; surface a clear error after.
+      if (Date.now() - startedAt > PAIR_TIMEOUT_MS) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+        setPhase('error');
+        setPairError('The bot did not respond in time. Please try again.');
+        return;
+      }
       try {
         const res = await fetch(`/api/pair?requestId=${requestId}`);
         const data = await res.json();
@@ -112,6 +137,10 @@ export default function Home() {
             setCode(String(c));
             setPhase('code');
             loadDevices();
+            setTimeout(() => {
+              const el = document.getElementById('code-box');
+              if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }, 100);
           } else {
             setPhase('error');
             setPairError('The bot replied without a code. Please try again.');
@@ -202,10 +231,11 @@ export default function Home() {
             <input
               type="tel"
               value={number}
-              onChange={(e) => setNumber(e.target.value)}
+              onChange={(e) => setNumber(e.target.value.replace(/\D/g, ''))}
               placeholder="Phone number — e.g. 254785016388"
               autoComplete="tel"
               inputMode="numeric"
+              maxLength={15}
               disabled={phase === 'pairing'}
             />
             <button className="btn primary" type="submit" disabled={phase === 'pairing'}>
@@ -218,13 +248,19 @@ export default function Home() {
               )}
             </button>
           </form>
+          {botOnline === false && (
+            <div className="notice">
+              🔴 The bot is currently offline — pairing will not work until it comes back.
+              Devices below may be stale.
+            </div>
+          )}
           <p className="hint">
             Open <b>WhatsApp → Linked devices → Pair a device</b> and enter the code when it
             appears.
           </p>
 
           {phase === 'code' && (
-            <div className="code-box">
+            <div className="code-box" id="code-box">
               <div className="code">{code}</div>
               <div className="code-steps">
                 <span className="step">1 · Open WhatsApp on the phone</span>
@@ -304,7 +340,15 @@ export default function Home() {
         </section>
 
         <footer className="site">
-          <span>QUARTZ XD — pairing station · part of the MZAZI TECH ecosystem</span>
+          <span>
+            QUARTZ XD — pairing station · part of the MZAZI TECH ecosystem
+            {botUptime != null && (
+              <span style={{ marginLeft: 8, opacity: 0.7 }}>
+                · uptime {formatUptime(botUptime)}
+                {botVersion ? ` · v${botVersion}` : ''}
+              </span>
+            )}
+          </span>
           <span>
             <a href="https://mzazi.shop" target="_blank" rel="noreferrer">
               mzazi.shop

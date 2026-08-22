@@ -492,6 +492,16 @@ footer.site a { color: var(--muted); text-decoration: none; }
 footer.site a:hover { color: var(--amber); }
 
 /* ─── Toasts / errors ──────────────────────────────────────── */
+.notice {
+  margin-top: 14px;
+  border: 1px solid rgba(242, 169, 59, 0.4);
+  background: rgba(242, 169, 59, 0.07);
+  color: var(--amber);
+  border-radius: 10px;
+  padding: 11px 14px;
+  font-size: 13.5px;
+}
+
 .error-box {
   margin-top: 14px;
   border: 1px solid rgba(229, 72, 77, 0.45);
