@@ -37,10 +37,13 @@ body {
   color: var(--ink);
   -webkit-font-smoothing: antialiased;
   min-height: 100vh;
+  min-height: 100dvh;
   font-size: 16px;
   line-height: 1.6;
   overflow-x: hidden;
   -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 h1, h2, h3, .display { font-family: var(--font-display); }
@@ -74,7 +77,8 @@ h1, h2, h3, .display { font-family: var(--font-display); }
 .wrap {
   max-width: 1080px;
   margin: 0 auto;
-  padding: 0 24px;
+  /* Safe-area aware horizontal padding (notches/rounded corners) */
+  padding: 0 max(24px, env(safe-area-inset-left, 0px)) 0 max(24px, env(safe-area-inset-right, 0px));
   /* Belt-and-braces: never let any inherited pointer-events:none reach content */
   pointer-events: auto;
 }
@@ -478,7 +482,8 @@ input[type='tel']:focus {
 footer.site {
   border-top: 1px solid var(--line-soft);
   margin-top: 56px;
-  padding: 24px 0 40px;
+  /* Extra bottom padding clears Android/iOS bottom nav + gesture bar */
+  padding: 24px 0 calc(40px + env(safe-area-inset-bottom, 0px));
   display: flex;
   align-items: center;
   justify-content: space-between;

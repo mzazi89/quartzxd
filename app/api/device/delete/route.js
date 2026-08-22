@@ -28,6 +28,19 @@ function normalizeNumber(n) {
 
 export async function POST(request) {
   try {
+    // Optional admin protection: if DELETE_PIN is set in the environment, a
+    // matching x-delete-pin header is required (the UI prompts for it on 401).
+    const adminPin = process.env.DELETE_PIN;
+    if (adminPin) {
+      const provided = request.headers.get('x-delete-pin') || '';
+      if (provided !== adminPin) {
+        return NextResponse.json(
+          { error: 'This action is protected. A delete pin is required.', pinRequired: true },
+          { status: 401 }
+        );
+      }
+    }
+
     let body;
     try { body = await request.json(); } catch { body = {}; }
 

@@ -166,19 +166,43 @@ export default function Home() {
   }
 
   async function deleteDevice(num) {
-    if (!window.confirm(`Delete paired device +${num}?\n\nThis logs it out of WhatsApp and wipes its session.`)) return;
+    if (
+      !window.confirm(
+        `Are you sure you want to remove device +${formatNumber(num)}?\n\nIt will be logged out of WhatsApp and its session wiped.`
+      )
+    )
+      return;
     setDeleting(num);
     try {
-      const res = await fetch('/api/device/delete', {
+      let res = await fetch('/api/device/delete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ number: num }),
       });
-      const data = await res.json();
+      let data = await res.json();
+
+      // Optional admin protection: if the site is configured with DELETE_PIN,
+      // the API asks for it once — prompt and retry with the pin attached.
+      if (res.status === 401 && data && data.pinRequired) {
+        const pin = window.prompt('This action is protected. Enter the delete pin:');
+        if (!pin) {
+          setDeleting(null);
+          return;
+        }
+        res = await fetch('/api/device/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-delete-pin': pin },
+          body: JSON.stringify({ number: num }),
+        });
+        data = await res.json();
+      }
+
       if (!res.ok) {
         window.alert(data.error || 'Failed to delete device.');
       } else {
-        setTimeout(loadDevices, 3000);
+        // Optimistic UI: drop the card immediately, re-sync in the background.
+        setDevices((prev) => prev.filter((d) => d.number !== num));
+        setTimeout(loadDevices, 2000);
       }
     } catch (err) {
       window.alert('Network error while deleting.');
