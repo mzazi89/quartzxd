@@ -25,6 +25,16 @@ function db() {
 
 export async function GET() {
   try {
+    // Defensive: the telemetry columns are created by the quartz bot on its
+    // heartbeat, but the site should work even before the bot is updated.
+    // Same idempotent ADD COLUMN IF NOT EXISTS pattern — safe to run always.
+    for (const q of [
+      `ALTER TABLE bot_status ADD COLUMN IF NOT EXISTS ip_address TEXT DEFAULT ''`,
+      `ALTER TABLE bot_status ADD COLUMN IF NOT EXISTS devices_meta TEXT DEFAULT '{}'`,
+    ]) {
+      try { await db().unsafe(q); } catch (e) {}
+    }
+
     const rows = await db()`
       SELECT online, version, uptime_seconds, session_numbers, ip_address, devices_meta, last_seen_at
       FROM bot_status
