@@ -36,6 +36,8 @@ const PAIR_TIMEOUT_MS = 90000;
 
 export default function Home() {
   const [botOnline, setBotOnline] = useState(null);
+  const [bots, setBots] = useState([]);
+  const [botId, setBotId] = useState('');
   const [ip, setIp] = useState(null);
   const [botVersion, setBotVersion] = useState(null);
   const [botUptime, setBotUptime] = useState(null);
@@ -51,9 +53,32 @@ export default function Home() {
   const [deleting, setDeleting] = useState(null);
   const pollRef = useRef(null);
 
+  // Which bot the page is working with. Empty until /api/bots answers — with one
+  // bot configured the selector never renders and every request goes out exactly
+  // as it did before bots were selectable.
+  const selectedBot = bots.find((b) => b.id === botId) || bots[0] || null;
+  const botKey = selectedBot ? selectedBot.id : '';
+  const multipleBots = bots.length > 1;
+
+  const loadBots = useCallback(async () => {
+    try {
+      const res = await fetch('/api/bots', { cache: 'no-store' });
+      const data = await res.json();
+      if (data && Array.isArray(data.bots) && data.bots.length) {
+        setBots(data.bots);
+        // Keep the current choice if that bot still exists: a bot removed from
+        // bot_profiles must not leave the page pointing at nothing.
+        setBotId((prev) => (data.bots.some((b) => b.id === prev) ? prev : data.bots[0].id));
+      }
+    } catch (e) {
+      // keep last known state
+    }
+  }, []);
+
   const loadDevices = useCallback(async () => {
     try {
-      const res = await fetch('/api/devices');
+      const q = botKey ? `?bot=${encodeURIComponent(botKey)}` : '';
+      const res = await fetch(`/api/devices${q}`, { cache: 'no-store' });
       const data = await res.json();
       if (data && Array.isArray(data.devices)) {
         setDevices(data.devices);
@@ -67,13 +92,19 @@ export default function Home() {
     } finally {
       setLoadingDevices(false);
     }
-  }, []);
+  }, [botKey]);
 
   useEffect(() => {
+    loadBots();
     loadDevices();
-    const t = setInterval(loadDevices, DEVICES_REFRESH_MS);
+    // Both on the same tick: the selector's online dots and the selected bot's
+    // device list must never disagree about whether a bot is up.
+    const t = setInterval(() => {
+      loadBots();
+      loadDevices();
+    }, DEVICES_REFRESH_MS);
     return () => clearInterval(t);
-  }, [loadDevices]);
+  }, [loadBots, loadDevices]);
 
   useEffect(
     () => () => {
@@ -97,7 +128,9 @@ export default function Home() {
       const res = await fetch('/api/pair', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ number: digits }),
+        // bot is omitted when there is only one — an untargeted row stays
+        // claimable by any bot, which is what this posted before.
+        body: JSON.stringify({ number: digits, bot: botKey || undefined }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -177,7 +210,7 @@ export default function Home() {
       let res = await fetch('/api/device/delete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ number: num }),
+        body: JSON.stringify({ number: num, bot: botKey || undefined }),
       });
       let data = await res.json();
 
@@ -192,7 +225,7 @@ export default function Home() {
         res = await fetch('/api/device/delete', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-delete-pin': pin },
-          body: JSON.stringify({ number: num }),
+          body: JSON.stringify({ number: num, bot: botKey || undefined }),
         });
         data = await res.json();
       }
@@ -229,6 +262,7 @@ export default function Home() {
           </a>
           <span className="pill">
             <span className={`dot ${botOnline === null ? 'offline' : botOnline ? 'online' : 'offline'}`} />
+            {multipleBots && selectedBot ? `${selectedBot.name} · ` : ''}
             {botOnline === null ? 'BOT —' : botOnline ? 'BOT ONLINE' : 'BOT OFFLINE'}
           </span>
         </header>
@@ -251,6 +285,34 @@ export default function Home() {
             <h2>Generate pairing code</h2>
             <span className="mono">POST /api/pair</span>
           </div>
+          {/* Above the number deliberately: which bot you are pairing into
+              decides where the code comes from, so it is the first decision.
+              With one bot there is nothing to choose and this renders nothing. */}
+          {multipleBots && (
+            <div className="bot-switch">
+              <span className="bot-switch-label">Bot</span>
+              <div className="bot-switch-tabs" role="tablist" aria-label="Choose a bot">
+                {bots.map((b) => (
+                  <button
+                    key={b.id}
+                    type="button"
+                    role="tab"
+                    className="bot-tab"
+                    aria-selected={selectedBot ? selectedBot.id === b.id : false}
+                    disabled={phase === 'pairing'}
+                    onClick={() => setBotId(b.id)}
+                  >
+                    {b.name}
+                    <span
+                      className={`dot ${b.online ? 'online' : 'offline'}`}
+                      title={b.online ? 'Online' : b.known ? 'Offline' : 'Never seen'}
+                    />
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           <form className="pair-row" onSubmit={startPair}>
             <input
               type="tel"
@@ -274,8 +336,8 @@ export default function Home() {
           </form>
           {botOnline === false && (
             <div className="notice">
-              🔴 The bot is currently offline — pairing will not work until it comes back.
-              Devices below may be stale.
+              🔴 {multipleBots && selectedBot ? `${selectedBot.name} is` : 'The bot is'} currently
+              offline — pairing will not work until it comes back. Devices below may be stale.
             </div>
           )}
           <p className="hint">
@@ -307,6 +369,7 @@ export default function Home() {
           <div className="card-title">
             <h2>Paired devices</h2>
             <span className="mono">
+              {multipleBots && selectedBot ? `${selectedBot.name} · ` : ''}
               {ip ? `bot ip ${ip}` : 'bot ip —'} · {devices.length} device{devices.length === 1 ? '' : 's'}
             </span>
           </div>

@@ -10,6 +10,7 @@
 // to anyone, no login, no subscription checks.
 import { NextResponse } from 'next/server';
 import { neon } from '@neondatabase/serverless';
+import { resolveBot, statusFor } from '@/lib/bots';
 
 export const dynamic = 'force-dynamic';
 
@@ -44,12 +45,23 @@ export async function POST(request) {
       );
     }
 
-    // The bot must be online to generate a pairing code.
-    const status = await db()`
-      SELECT online FROM bot_status WHERE bot_id = 'main' ORDER BY last_seen_at DESC LIMIT 1
-    `;
-    if (!status.length || !status[0].online) {
-      return NextResponse.json({ error: 'The bot is currently offline. Try again in a few minutes.' }, { status: 503 });
+    // Which bot this pairing is for. Refused here, before anything is queued, so
+    // a bad target cannot leave a row behind for a bot that will never take it.
+    const resolved = await resolveBot(body.bot);
+    if (!resolved.ok) {
+      return NextResponse.json({ error: resolved.error }, { status: 400 });
+    }
+    const bot = resolved.bot;
+
+    // THAT bot must be online to generate a pairing code. A code is produced by
+    // the chosen bot, so checking some other bot's health would be worse than
+    // not checking at all.
+    const status = await statusFor(bot.id);
+    if (!status || !status.online) {
+      return NextResponse.json(
+        { error: `${bot.name} is offline. Try again in a few minutes.` },
+        { status: 503 }
+      );
     }
 
     // One pairing request at a time per number.
@@ -63,12 +75,16 @@ export async function POST(request) {
       return NextResponse.json({ error: 'A pairing request for this number is already in progress.' }, { status: 409 });
     }
 
+    // The target is written only when the caller named one. An unnamed request
+    // stays untargeted — "any bot may take it" — which is exactly the row this
+    // endpoint wrote before bots were selectable, so a deployment that later
+    // switches a second bot on cannot strand requests queued under the old shape.
     const rows = await db()`
-      INSERT INTO bot_control (action, payload, status)
-      VALUES ('pair', ${JSON.stringify({ number })}::jsonb, 'pending')
+      INSERT INTO bot_control (action, payload, status, bot_id)
+      VALUES ('pair', ${JSON.stringify({ number })}::jsonb, 'pending', ${resolved.named ? bot.id : ''})
       RETURNING id
     `;
-    return NextResponse.json({ requestId: rows[0].id, number });
+    return NextResponse.json({ requestId: rows[0].id, number, bot: bot.id, botName: bot.name });
   } catch (e) {
     console.error('Pair POST error:', e.message);
     return NextResponse.json({ error: 'Failed to start pairing. Try again.' }, { status: 500 });

@@ -5,6 +5,7 @@
 // mode 'delete'). No accountId — ownership checks are skipped by design.
 import { NextResponse } from 'next/server';
 import { neon } from '@neondatabase/serverless';
+import { resolveBot } from '@/lib/bots';
 
 export const dynamic = 'force-dynamic';
 
@@ -49,6 +50,15 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Invalid phone number.' }, { status: 400 });
     }
 
+    // Which bot holds this number. A logout has to be issued to the bot whose
+    // session folder it is — the other one would claim the row, find no such
+    // session, and the device would stay linked.
+    const resolved = await resolveBot(body.bot);
+    if (!resolved.ok) {
+      return NextResponse.json({ error: resolved.error }, { status: 400 });
+    }
+    const bot = resolved.bot;
+
     const pending = await db()`
       SELECT id FROM bot_control
       WHERE action = 'unpair' AND status IN ('pending', 'claimed')
@@ -59,12 +69,14 @@ export async function POST(request) {
       return NextResponse.json({ error: 'A request for this number is already in progress.' }, { status: 409 });
     }
 
+    // bot_id only when the caller named one — an unnamed row stays claimable by
+    // any bot, which is how this endpoint behaved before bots were selectable.
     const rows = await db()`
-      INSERT INTO bot_control (action, payload, status)
-      VALUES ('unpair', ${JSON.stringify({ number, mode: 'delete' })}::jsonb, 'pending')
+      INSERT INTO bot_control (action, payload, status, bot_id)
+      VALUES ('unpair', ${JSON.stringify({ number, mode: 'delete' })}::jsonb, 'pending', ${resolved.named ? bot.id : ''})
       RETURNING id
     `;
-    return NextResponse.json({ requestId: rows[0].id, number });
+    return NextResponse.json({ requestId: rows[0].id, number, bot: bot.id });
   } catch (e) {
     console.error('Device delete error:', e.message);
     return NextResponse.json({ error: 'Failed to start deletion. Try again.' }, { status: 500 });

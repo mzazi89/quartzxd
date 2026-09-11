@@ -8,6 +8,7 @@
 //                 (battery/plugged show only when the Baileys build reports them)
 import { NextResponse } from 'next/server';
 import { neon } from '@neondatabase/serverless';
+import { resolveBot, statusFor } from '@/lib/bots';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,7 +24,7 @@ function db() {
 }
 
 
-export async function GET() {
+export async function GET(request) {
   try {
     // Defensive: the telemetry columns are created by the quartz bot on its
     // heartbeat, but the site should work even before the bot is updated.
@@ -35,19 +36,28 @@ export async function GET() {
       try { await db().unsafe(q); } catch (e) {}
     }
 
-    const rows = await db()`
-      SELECT online, version, uptime_seconds, session_numbers, ip_address, devices_meta, last_seen_at
-      FROM bot_status
-      WHERE bot_id = 'main'
-      ORDER BY last_seen_at DESC
-      LIMIT 1
-    `;
-
-    if (!rows.length) {
-      return NextResponse.json({ botOnline: false, ip: null, devices: [] });
+    // Which bot's devices to show. Unnamed with a single bot configured resolves
+    // to that bot, which is exactly what this endpoint did when it hardcoded
+    // bot_id = 'main' — that literal is the fallback profile id, so a one-bot
+    // deployment reads the same row it always did.
+    const { searchParams } = new URL(request.url);
+    const resolved = await resolveBot(searchParams.get('bot'));
+    if (!resolved.ok) {
+      return NextResponse.json({ error: resolved.error }, { status: 400 });
     }
+    const bot = resolved.bot;
 
-    const r = rows[0];
+    const r = await statusFor(bot.id);
+
+    if (!r) {
+      return NextResponse.json({
+        bot: bot.id,
+        botName: bot.name,
+        botOnline: false,
+        ip: null,
+        devices: [],
+      });
+    }
     let numbers = [];
     try { numbers = JSON.parse(r.session_numbers || '[]'); } catch {}
     let meta = {};
@@ -62,6 +72,8 @@ export async function GET() {
     }));
 
     return NextResponse.json({
+      bot: bot.id,
+      botName: bot.name,
       botOnline: !!r.online,
       ip: r.ip_address || null,
       version: r.version || null,
